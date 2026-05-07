@@ -1,0 +1,11 @@
+﻿syntax = "proto3";
+
+message PriceUpdate {
+  string symbol = 1;
+  string price = 2;
+  uint64 timestamp = 3;
+}
+
+message SubscribeRequest {
+  repeated string symbols = 1;
+}

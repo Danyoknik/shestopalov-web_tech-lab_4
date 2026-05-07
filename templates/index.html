@@ -1,0 +1,119 @@
+﻿<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Лабораторна робота №4 - WebSocket & Protobuf</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; max-width: 900px; margin: 40px auto; padding: 20px; background-color: #f8f9fa; }
+        .container { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); }
+        .section { margin-bottom: 30px; padding-bottom: 20px; border-bottom: 1px solid #eee; }
+        button { background-color: #007bff; color: white; border: none; padding: 12px 24px; border-radius: 6px; cursor: pointer; font-size: 16px; transition: 0.3s; }
+        button:hover { background-color: #0056b3; }
+        .crypto-card { background: #e9ecef; padding: 15px; border-radius: 8px; margin-top: 10px; display: flex; justify-content: space-between; align-items: center; }
+        .price { font-size: 1.2em; font-weight: bold; color: #28a745; }
+        input { padding: 10px; border: 1px solid #ddd; border-radius: 6px; width: 200px; }
+        pre { background: #272c34; color: #abd5ff; padding: 15px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Моніторинг криптоактивів (WebSocket + Protobuf)</h1>
+
+        <div class="section">
+            <h3>1. Аутентифікація (OIDC)</h3>
+            <button onclick="window.location.href='/login'">Увійти через Casdoor</button>
+            <button onclick="getUserInfo()" style="background-color: #6c757d;">Перевірити профіль</button>
+            <pre id="userInfo">Статус: очікування авторизації...</pre>
+        </div>
+
+        <div class="section">
+            <h3>2. Підписка на дані Binance</h3>
+            <div style="display: flex; gap: 10px;">
+                <input type="text" id="symbolInput" placeholder="Наприклад: BTCUSDT">
+                <button onclick="subscribe()" style="background-color: #28a745;">Підписатися</button>
+            </div>
+
+            <div id="tickerContainer">
+                </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.2.5/dist/protobuf.min.js"></script>
+
+    <script>
+        let socket;
+        let PriceUpdate;
+        let SubscribeRequest;
+
+        protobuf.load("/static/message.proto", function(err, root) {
+            if (err) throw err;
+            PriceUpdate = root.lookupType("PriceUpdate");
+            SubscribeRequest = root.lookupType("SubscribeRequest");
+            console.log("Protobuf схеми завантажено");
+            initWebSocket();
+        });
+
+        function initWebSocket() {
+            const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+            socket = new WebSocket(`${protocol}//${window.location.host}/ws`);
+            socket.binaryType = "arraybuffer"; // Важливо для роботи з бінарними даними Protobuf
+
+            socket.onopen = () => console.log("WebSocket підключено");
+
+            socket.onmessage = function(event) {
+                // Декодування бінарного повідомлення PriceUpdate
+                const message = PriceUpdate.decode(new Uint8Array(event.data));
+                updateUI(message);
+            };
+
+            socket.onclose = (e) => {
+                if (e.code === 4001) {
+                    alert("Помилка: Ви не авторизовані! Будь ласка, увійдіть в систему.");
+                }
+                console.log("З'єднання закрито", e);
+            };
+        }
+
+        function subscribe() {
+            const symbol = document.getElementById('symbolInput').value.trim().toUpperCase();
+            if (!symbol) return;
+
+            const payload = { symbols: [symbol] };
+
+            // Кодування запиту в Protobuf
+            const buffer = SubscribeRequest.encode(SubscribeRequest.create(payload)).finish();
+            socket.send(buffer);
+
+            console.log(`Запит на підписку надіслано: ${symbol}`);
+        }
+
+        function updateUI(data) {
+            let card = document.getElementById(`card-${data.symbol}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = `card-${data.symbol}`;
+                card.className = 'crypto-card';
+                document.getElementById('tickerContainer').appendChild(card);
+            }
+
+            card.innerHTML = `
+                <span><strong>${data.symbol}</strong></span>
+                <span class="price">$${parseFloat(data.price).toFixed(2)}</span>
+                <small style="color: #666;">${new Date(Number(data.timestamp)).toLocaleTimeString()}</small>
+            `;
+        }
+
+        async function getUserInfo() {
+            const display = document.getElementById('userInfo');
+            try {
+                const response = await fetch('/user-info');
+                const data = await response.json();
+                display.innerText = JSON.stringify(data, null, 2);
+            } catch (error) {
+                display.innerText = "Помилка: Ви не авторизовані";
+            }
+        }
+    </script>
+</body>
+</html>
